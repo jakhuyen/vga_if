@@ -1,20 +1,86 @@
-module vga_if (
+module vga_if #(
+  parameter H_PIXELS         = 640,
+  parameter H_FRONT_PORCH    = 16,
+  parameter H_SYNC_PULSE     = 96,
+  parameter H_BACK_PORCH     = 48,
+  parameter H_SYNC_POLARITY  = 1'b0,  // 0 is negative polarity, 1 is positive
+  parameter V_PIXELS         = 480,
+  parameter V_FRONT_PORCH    = 10,
+  parameter V_SYNC_PULSE     = 2,
+  parameter V_BACK_PORCH     = 33,
+  parameter V_SYNC_POLARITY  = 1'b0)
+(
   input clkIn,
   input rstIn,
-  output [3:0] vgaROut,
-  output [3:0] vgaGOut,
-  output [3:0] vgaBOut,
-  output vgaHsOut,
-  output vgaVsOut
-);
+  input [3:0] vgaRIn,
+  input [3:0] vgaGIn,
+  input [3:0] vgaBIn,
+  output reg [3:0] vgaROut,
+  output reg [3:0] vgaGOut,
+  output reg [3:0] vgaBOut,
+  output reg vgaHsOut,
+  output reg vgaVsOut);
 
-  wire rstW = ~rstIn;
+  localparam H_COUNT = H_PIXELS + H_FRONT_PORCH + H_SYNC_PULSE + H_BACK_PORCH;
+  localparam H_SYNC_L = H_PIXELS + H_FRONT_PORCH;
+  localparam H_SYNC_H = H_PIXELS + H_FRONT_PORCH + H_SYNC_PULSE;
 
-  always @ (posedge rstW, posedge clkIn) begin
-    if (rstW == 1) begin
+  localparam V_COUNT = V_PIXELS + V_FRONT_PORCH + V_SYNC_PULSE + V_BACK_PORCH;
+  localparam V_SYNC_L = V_PIXELS + V_FRONT_PORCH;
+  localparam V_SYNC_H = V_PIXELS + V_FRONT_PORCH + V_SYNC_PULSE;
+
+  reg [$rtoi($floor($log10(V_COUNT)/$log10(2))):0] vCntR;
+
+  wire [$rtoi($floor($log10(H_COUNT)/$log10(2))):0] hCntW;
+  wire hCntDoneW;
+
+  counter #(.MAX_CNT(H_COUNT), .LOOP(1)) horizontal_cnt
+  (
+    .clkIn(clkIn),
+    .rstIn(rstIn),
+    .enIn(1'b1),
+    .cntDoneOut(hCntDoneW),
+    .cntValOut(hCntW)
+  );
+
+  always @ (posedge rstIn, posedge clkIn) begin
+    if (rstIn == 1) begin
+      vCntR    <= {V_COUNT{1'b0}};
+      vgaHsOut <= ~H_SYNC_POLARITY;
+      vgaVsOut <= ~V_SYNC_POLARITY;
     end
 
     else if (clkIn == 1) begin
+      vgaHsOut <= ~H_SYNC_POLARITY;
+      vgaVsOut <= ~V_SYNC_POLARITY;
+
+      if (hCntW > H_SYNC_L && hCntW <= H_SYNC_H) begin
+        vgaHsOut <= H_SYNC_POLARITY;
+      end
+
+      if (vCntR > V_SYNC_L && vCntR <= V_SYNC_H) begin
+        vgaVsOut <= V_SYNC_POLARITY;
+      end
+
+      if (hCntW <= H_PIXELS && vCntR <= V_PIXELS) begin
+        vgaROut  <= vgaRIn;
+        vgaGOut  <= vgaGIn;
+        vgaBOut  <= vgaBIn;
+      end
+
+      else begin
+        vgaROut  <= 4'h0;
+        vgaGOut  <= 4'h0;
+        vgaBOut  <= 4'h0;
+      end
+
+      if (hCntW == 1) begin
+        vCntR <= vCntR + 1;
+      end
+
+      if (vCntR == V_COUNT - 1) begin
+        vCntR <= {V_COUNT{1'b0}};
+      end
     end
   end
 
